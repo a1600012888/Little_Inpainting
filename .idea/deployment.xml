@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="Always" serverName="ssh://wurundi@162.105.162.4:22/home1/wurundi/anaconda3/envs/pytorch/bin/python3.6" autoUploadExternalChanges="true">
+    <serverData>
+      <paths name="ssh://wurundi@162.105.162.4:22/home1/wurundi/anaconda3/envs/pytorch/bin/python3.6">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home1/wurundi/code/inpainting" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
+  </component>
+</project>
