@@ -53,6 +53,7 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
     valid_losses = AverageMeter()
     style_losses = AverageMeter()
     content_losses = AverageMeter()
+    tv_losses = AverageMeter()
     # ensure model is in train mode
 
     model.train()
@@ -102,6 +103,7 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
         tv_loss = torch.sum(torch.abs(outputs_hole[:, :, :, 1:] - targets_hole[:, :, :, :-1])) \
                   + torch.sum(torch.abs(outputs_hole[:, :, 1:, :] - targets_hole[:, :, :-1, :]))
         tv_loss /= inputs.size(0)
+        tv_losses.update(tv_loss.item(), inputs.size(0))
 
         # total loss
         loss = hole_loss * Hole_Loss_weight + valid_loss + \
@@ -123,6 +125,7 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
     tb_writer.add_scalar('train/valid_loss', valid_losses.avg, epoch)
     tb_writer.add_scalar('train/style_loss', style_losses.avg * Style_Loss_weight, epoch)
     tb_writer.add_scalar('train/content_loss', content_losses.avg * Content_Loss_weight, epoch)
+    tb_writer.add_scalar('train/tv_loss', tv_losses.avg * Tv_Loss_weight, epoch)
 
     torch.cuda.empty_cache()
     return
@@ -134,6 +137,7 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
     valid_losses = AverageMeter()
     style_losses = AverageMeter()
     content_losses = AverageMeter()
+    tv_losses = AverageMeter()
     # ensure model is in train mode
     model.eval()
     vgg.eval()
@@ -183,6 +187,7 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
             tv_loss = torch.sum(torch.abs(outputs_hole[:, :, :, 1:] - targets_hole[:, :, :, :-1])) \
                       + torch.sum(torch.abs(outputs_hole[:, :, 1:, :] - targets_hole[:, :, :-1, :]))
             tv_loss /= inputs.size(0)
+            tv_losses.update(tv_loss.item(), inputs.size(0))
 
             # total loss
             loss = hole_loss * Hole_Loss_weight + valid_loss + \
@@ -208,7 +213,8 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
     tb_writer.add_scalar('valid/hole_loss', hole_losses.avg * Hole_Loss_weight, epoch)
     tb_writer.add_scalar('valid/valid_loss', valid_losses.avg, epoch)
     tb_writer.add_scalar('valid/style_loss', style_losses.avg * Style_Loss_weight, epoch)
-    tb_writer.add_scalar('train/content_loss', content_losses.avg * Content_Loss_weight, epoch)
+    tb_writer.add_scalar('valid/content_loss', content_losses.avg * Content_Loss_weight, epoch)
+    tb_writer.add_scalar('valid/tv_loss', tv_losses.avg * Tv_Loss_weight, epoch)
 
     torch.cuda.empty_cache()
     outspects = {

@@ -161,7 +161,6 @@ def main():
     net = network()
 
     net = torch.nn.DataParallel(net).cuda()
-    print(net)
     sess = Session(config, net=net)
 
 
