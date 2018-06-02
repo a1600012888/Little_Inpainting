@@ -2,23 +2,20 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-import torch.nn.functional as F
 import numpy as np
 import time
 import os
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 import argparse
-from model import network, vgg_for_style_transfer
+from model import network
 from common import config
 from utils import TrainClock, save_args, AverageMeter
 from dataset import get_dataloaders
-from loss_function import gram_matrix
 
 torch.backends.cudnn.benchmark = True
 
 Hole_Loss_weight = 6
-Style_Loss_weight = 30
 
 class Session:
 
@@ -46,54 +43,33 @@ class Session:
         self.best_val_loss = checkpoint['best_val_loss']
 
 
-def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer):
+def train_model(train_loader, model, criterion, optimizer, epoch, tb_writer):
     losses = AverageMeter()
     hole_losses = AverageMeter()
     valid_losses = AverageMeter()
-    style_losses = AverageMeter()
     # ensure model is in train mode
-
     model.train()
     pbar = tqdm(train_loader)
     for i, data in enumerate(pbar):
         inputs = data['hole_img'].float()
         labels = data['ori_img'].float()
-        ori_img = labels.clone()
         # mask: 1 for the hole and 0 for others
         masks = data['mask'].float()
         inputs = inputs.to(config.device)
         labels = labels.to(config.device)
         masks = masks.to(config.device)
-        ori_img = ori_img.to(config.device)
 
         # pass this batch through our model and get y_pred
         outputs = model(inputs)
-        targets = vgg(ori_img)
-        features = vgg(outputs)
-
-
-        # get content and style loss
-        style_loss = 0
-        for k in range(inputs.size(0)):
-            targets_gram = [gram_matrix(f) for f in targets[k]]
-            features_gram = [gram_matrix(f) for f in features[k]]
-            for j in range(len(targets_gram)):
-                style_loss += torch.sum((features_gram[j] - targets_gram[j]) ** 2)
-                # style_loss += F.mse_loss(features_gram[j], targets_gram[j])
-        style_loss /= inputs.size(0)
-        style_losses.update(style_loss.item(), inputs.size(0))
 
         # update loss metric
         # suppose criterion is L1 loss
         hole_loss = criterion(outputs*masks, labels*masks)
         valid_loss = criterion(outputs*(1-masks), labels*(1-masks))
+        loss = hole_loss * Hole_Loss_weight + valid_loss
+        losses.update(loss.item(), inputs.size(0))
         hole_losses.update(hole_loss.item(), inputs.size(0))
         valid_losses.update(valid_loss.item(), inputs.size(0))
-
-        # total loss
-        loss = hole_loss * Hole_Loss_weight + valid_loss + \
-               style_loss * Style_Loss_weight
-        losses.update(loss.item(), inputs.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -102,67 +78,44 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
 
         pbar.set_description("EPOCH[{}][{}/{}]".format(epoch, i, len(train_loader)))
         pbar.set_postfix(
-            loss="LOSS:{:.4f}".format(losses.avg))
-
-    tb_writer.add_scalar('train/epoch_loss', losses.avg, epoch)
-    tb_writer.add_scalar('train/hole_loss', hole_losses.avg * Hole_Loss_weight, epoch)
-    tb_writer.add_scalar('train/valid_loss', valid_losses.avg, epoch)
-    tb_writer.add_scalar('train/style_loss', style_losses.avg * Style_Loss_weight, epoch)
+            loss="{:.4f}".format(losses.avg))
 
     torch.cuda.empty_cache()
+    tb_writer.add_scalar('train/epoch_loss', losses.avg, epoch)
+    tb_writer.add_scalar('train/hole_loss', hole_losses.avg, epoch)
+    tb_writer.add_scalar('train/valid_loss', valid_losses.avg, epoch)
+
     return
 
 
-def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer):
+def valid_model(valid_loader, model, criterion, epoch, tb_writer):
     losses = AverageMeter()
     hole_losses = AverageMeter()
     valid_losses = AverageMeter()
-    style_losses = AverageMeter()
     # ensure model is in train mode
     model.eval()
-    vgg.eval()
     pbar = tqdm(valid_loader)
     for i, data in enumerate(pbar):
         inputs = data['hole_img'].float()
         labels = data['ori_img'].float()
-        ori_img = labels.clone()
         # mask: 1 for the hole and 0 for others
         masks = data['mask'].float()
         inputs = inputs.to(config.device)
         labels = labels.to(config.device)
         masks = masks.to(config.device)
-        ori_img = ori_img.to(config.device)
 
         with torch.no_grad():
             # pass this batch through our model and get y_pred
             outputs = model(inputs)
-            targets = vgg(ori_img)
-            features = vgg(outputs)
-
-
-            # get content and style loss
-            style_loss = 0
-            for k in range(inputs.size(0)):
-                targets_gram = [gram_matrix(f) for f in targets[k]]
-                features_gram = [gram_matrix(f) for f in features[k]]
-                for j in range(len(targets_gram)):
-                    style_loss += torch.sum((features_gram[j] - targets_gram[j]) ** 2)
-                    #style_loss += F.mse_loss(features_gram[j], targets_gram[j])
-            style_loss /= inputs.size(0)
-            style_losses.update(style_loss.item(), inputs.size(0))
 
             # update loss metric
-            # suppose criterion is L1 loss
+            # suppose criterion is L2 loss
             hole_loss = criterion(outputs*masks, labels*masks)
             valid_loss = criterion(outputs*(1-masks), labels*(1-masks))
+            loss = Hole_Loss_weight * hole_loss + valid_loss
+            losses.update(loss.item(), inputs.size(0))
             hole_losses.update(hole_loss.item(), inputs.size(0))
             valid_losses.update(valid_loss.item(), inputs.size(0))
-
-            # total loss
-            loss = hole_loss * Hole_Loss_weight + valid_loss + \
-                   style_loss * Style_Loss_weight
-            losses.update(loss.item(), inputs.size(0))
-
             if i == 0:
                 for j in range(min(inputs.size(0), 3)):
                     hole_img = data['hole_img'][j]
@@ -175,14 +128,14 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
 
         pbar.set_description("EPOCH[{}][{}/{}]".format(epoch, i, len(valid_loader)))
         pbar.set_postfix(
-            loss="LOSS:{:.4f}".format(losses.avg))
+            loss="{:.4f}".format(losses.avg))
 
     tb_writer.add_scalar('valid/epoch_loss', losses.avg, epoch)
-    tb_writer.add_scalar('valid/hole_loss', hole_losses.avg * Hole_Loss_weight, epoch)
+    tb_writer.add_scalar('valid/hole_loss', hole_losses.avg, epoch)
     tb_writer.add_scalar('valid/valid_loss', valid_losses.avg, epoch)
-    tb_writer.add_scalar('valid/style_loss', style_losses.avg * Style_Loss_weight, epoch)
 
     torch.cuda.empty_cache()
+
     outspects = {
         'epoch_loss': losses.avg,
     }
@@ -193,13 +146,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', default=100, type=int, help='epoch number')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch number')
-    parser.add_argument('-b', '--batch_size', default=4, type=int, help='mini-batch size')
+    parser.add_argument('-b', '--batch_size', default=8, type=int, help='mini-batch size')
     parser.add_argument('--lr', '--learning_rate', default=1e-4, type=float, help='initial learning rate')
     parser.add_argument('--weight-decay', default=0.0, type=float, help='weight decay')
-    parser.add_argument('--exp_name', default=config.exp_name, type=str, required=False)
     parser.add_argument('-c', '--continue', dest='continue_path', type=str, required=False)
-    parser.add_argument('--valid', action='store_true')
-    parser.add_argument('--style_loss', action='store_true')
+    parser.add_argument('--exp_name', default=config.exp_name, type=str, required=False)
     args = parser.parse_args()
     print(args)
 
@@ -208,11 +159,11 @@ def main():
 
     save_args(args, config.log_dir)
     net = network()
-    vgg = vgg_for_style_transfer()
 
-    net = torch.nn.DataParallel(net, device_ids=[0]).cuda()
-    vgg = torch.nn.DataParallel(vgg, device_ids=[0]).cuda()
+    net = torch.nn.DataParallel(net).cuda()
+    print(net)
     sess = Session(config, net=net)
+
 
     train_loader = get_dataloaders(os.path.join(config.data_dir, 'train.json'),
                                    batch_size=args.batch_size, shuffle=True)
@@ -229,14 +180,13 @@ def main():
 
     optimizer = optim.Adam(sess.net.parameters(), args.lr, weight_decay=args.weight_decay)
 
-    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=10, verbose=True)
 
     for e in range(args.epochs):
-        train_model(train_loader, sess.net, vgg,
+        train_model(train_loader, sess.net,
                                 criterion, optimizer, clock.epoch, tb_writer)
-        valid_out = valid_model(valid_loader, sess.net, vgg,
-                                criterion, optimizer, clock.epoch, tb_writer)
-
+        valid_out = valid_model(valid_loader, sess.net,
+                                criterion, clock.epoch, tb_writer)
         tb_writer.add_scalar('train/learning_rate', optimizer.param_groups[-1]['lr'], clock.epoch)
         scheduler.step(valid_out['epoch_loss'])
 

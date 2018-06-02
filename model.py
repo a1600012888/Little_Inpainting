@@ -85,13 +85,22 @@ class network(nn.Module):
                                       stride=1, padding=1))
         ]))
         for d in self.dilations:
-            self.feature.add_module('conv3_dilated{}'.format(d),
+            self.feature.add_module('conv3_dilated{}_1'.format(d),
                                     _conv_bn_relu(self.channels[2], self.channels[2],
                                                   kernel_size=3,stride=1, padding=d, dilation=d))
         self.feature.add_module('conv3_4', _conv_bn_relu(self.channels[2], self.channels[2], kernel_size=3,
                                                          stride=1, padding=1))
         self.feature.add_module('conv3_5', _conv_bn_relu(self.channels[2], self.channels[2], kernel_size=3,
                                                          stride=1, padding=1))
+        for d in self.dilations:
+            self.feature.add_module('conv3_dilated{}_2'.format(d),
+                                    _conv_bn_relu(self.channels[2], self.channels[2],
+                                                  kernel_size=3,stride=1, padding=d, dilation=d))
+        self.feature.add_module('conv3_6', _conv_bn_relu(self.channels[2], self.channels[2], kernel_size=3,
+                                                         stride=1, padding=1))
+        self.feature.add_module('conv3_7', _conv_bn_relu(self.channels[2], self.channels[2], kernel_size=3,
+                                                         stride=1, padding=1))
+
         self.up1 = up(self.channels[2], self.channels[3], self.channels[3])
         self.up2 = up(self.channels[3], self.channels[4], self.channels[5])
         self.out_conv = _conv_bn_relu(self.channels[5], 3, kernel_size=3,

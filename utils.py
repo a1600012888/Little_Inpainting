@@ -3,7 +3,7 @@ import json
 
 class TrainClock(object):
     def __init__(self):
-        self.epoch = 0
+        self.epoch = 1
         self.minibatch = 0
         self.step = 0
 

@@ -8,8 +8,9 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 # Ignore warnings
+import random
+import time
 import warnings
-from common import config
 from torch.utils.data.sampler import WeightedRandomSampler
 
 warnings.filterwarnings("ignore")
@@ -36,8 +37,8 @@ class Cityscapes_dataset(Dataset):
         ori_img = np.array(ori_img)
         mask = np.zeros((ori_img.shape[0], ori_img.shape[1], 1))
 
-        sy = np.random.randint(0, 255 - 64)
-        sx = np.random.randint(0, 511 - 128)
+        sy = np.random.randint(0, 255 - 64)     # np.random does not support multi-thread
+        sx = np.random.randint(0, 511 - 128)    # set worker_init_fn for dataloader
         ey = sy + 64
         ex = sx + 128
 
@@ -57,7 +58,7 @@ def get_dataloaders(json_filepath, batch_size, shuffle=True):
     data_transforms = transforms.Compose([
             transforms.ToTensor()])
     dataset = Cityscapes_dataset(json_filepath, data_transforms)
-    dataloader = DataLoader(dataset, batch_size, shuffle=shuffle, num_workers=8)
+    dataloader = DataLoader(dataset, batch_size, shuffle=shuffle, num_workers=8, worker_init_fn=lambda _: np.random.seed())
     return dataloader
 
 
