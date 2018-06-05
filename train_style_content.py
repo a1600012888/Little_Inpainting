@@ -27,7 +27,7 @@ class Session:
         self.log_dir = config.log_dir
         self.model_dir = config.model_dir
         self.net = net
-        self.best_val_loss = 0
+        self.best_val_loss = np.Inf
         self.tb_writer = SummaryWriter(log_dir=self.log_dir)
         self.clock = TrainClock()
 

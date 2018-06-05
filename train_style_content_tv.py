@@ -21,20 +21,21 @@ Hole_Loss_weight = 6
 Content_Loss_weight = 0.01
 Style_Loss_weight = 30
 Tv_Loss_weight = 0.1
+
 class Session:
 
     def __init__(self, config, net=None):
         self.log_dir = config.log_dir
         self.model_dir = config.model_dir
         self.net = net
-        self.best_val_loss = 0
+        self.best_val_loss = np.inf
         self.tb_writer = SummaryWriter(log_dir=self.log_dir)
         self.clock = TrainClock()
 
     def save_checkpoint(self, name):
         ckp_path = os.path.join(self.model_dir, name)
         tmp = {
-            'state_dict': self.net,
+            'state_dict': self.net.state_dict(),
             'best_val_loss': self.best_val_loss,
             'clock': self.clock.make_checkpoint(),
         }
@@ -79,7 +80,8 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
         content_loss = 0
         style_loss = 0
         for k in range(inputs.size(0)):
-            content_loss += torch.sum((features[3][k] - targets[3][k]) ** 2) / 2
+            #content_loss += torch.sum((features[3][k] - targets[3][k]) ** 2) / 2
+            content_loss += F.mse_loss(features[3][k], targets[3][k])
             targets_gram = [gram_matrix(f[k]) for f in targets]
             features_gram = [gram_matrix(f[k]) for f in features]
             for j in range(len(targets_gram)):
@@ -163,11 +165,12 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
             content_loss = 0
             style_loss = 0
             for k in range(inputs.size(0)):
-                content_loss += torch.sum((features[3] - targets[3]) ** 2) / 2
-                targets_gram = [gram_matrix(f) for f in targets[k]]
-                features_gram = [gram_matrix(f) for f in features[k]]
+                content_loss += torch.sum((features[3][k] - targets[3][k]) ** 2) / 2
+                targets_gram = [gram_matrix(f[k]) for f in targets]
+                features_gram = [gram_matrix(f[k]) for f in features]
                 for j in range(len(targets_gram)):
                     style_loss += torch.sum((features_gram[j] - targets_gram[j]) ** 2)
+
                     # style_loss += F.mse_loss(features_gram[j], targets_gram[j])
             style_loss /= inputs.size(0)
             content_loss /= inputs.size(0)
@@ -246,15 +249,16 @@ def main():
 
     net = torch.nn.DataParallel(net).cuda()
     vgg = torch.nn.DataParallel(vgg).cuda()
+
     sess = Session(config, net=net)
+
+    if args.continue_path and os.path.exists(args.continue_path):
+        sess.load_checkpoint(args.continue_path)
 
     train_loader = get_dataloaders(os.path.join(config.data_dir, 'train.json'),
                                    batch_size=args.batch_size, shuffle=True)
     valid_loader = get_dataloaders(os.path.join(config.data_dir, 'val.json'),
                                    batch_size=args.batch_size, shuffle=True)
-
-    if args.continue_path and os.path.exists(args.continue_path):
-        sess.load_checkpoint(args.continue_path)
 
     clock = sess.clock
     tb_writer = sess.tb_writer
@@ -263,7 +267,7 @@ def main():
 
     optimizer = optim.Adam(sess.net.parameters(), args.lr, weight_decay=args.weight_decay)
 
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=20, verbose=True)
 
     for e in range(args.epochs):
         train_model(train_loader, sess.net, vgg,
