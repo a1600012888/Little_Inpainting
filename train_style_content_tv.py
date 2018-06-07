@@ -282,6 +282,7 @@ def main():
     parser.add_argument('--enable_l1', action = 'store_true')
     parser.add_argument('--tv', type = float, default = 0.1)
     parser.add_argument('--style', type = float, default = 30)
+    parser.add_argument('--content', type = float, default = 0.01)
     args = parser.parse_args()
     print(args)
     global rValid_Loss_weight
@@ -290,6 +291,7 @@ def main():
     global rTv_Loss_weight
     global rContent_Loss_weight
 
+    rContent_Loss_weight = args.content
     rStyle_Loss_weight = args.style
     rTv_Loss_weight = args.tv
     if not args.enable_l1:
