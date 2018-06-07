@@ -24,11 +24,15 @@ torch.backends.cudnn.benchmark = True
 
 Valid_Loss_weight = 1
 Hole_Loss_weight = 6
-rValid_Loss_weight = 1
-rHole_Loss_weight = 6
 Content_Loss_weight = 0.01
 Style_Loss_weight = 30
 Tv_Loss_weight = 0.1
+
+rValid_Loss_weight = 1
+rHole_Loss_weight = 6
+rContent_Loss_weight = 0.01
+rStyle_Loss_weight = 30
+rTv_Loss_weight = 0.1
 
 class Session:
 
@@ -132,8 +136,8 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
 
         # total loss
         loss = hole_loss * rHole_Loss_weight + valid_loss * rValid_Loss_weight + \
-               style_loss * Style_Loss_weight + content_loss * Content_Loss_weight + \
-               tv_loss * Tv_Loss_weight
+               style_loss * rStyle_Loss_weight + content_loss * rContent_Loss_weight + \
+               tv_loss * rTv_Loss_weight
         losses.update(loss.item(), inputs.size(0))
 
         # compute gradient and do SGD step
@@ -230,9 +234,9 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
             tv_losses.update(tv_loss.item(), inputs.size(0))
 
             # total loss
-            loss = hole_loss * Hole_Loss_weight + valid_loss  * rValid_Loss_weight+ \
-                   style_loss * Style_Loss_weight + content_loss * Content_Loss_weight+ \
-                   tv_loss * Tv_Loss_weight
+            loss = hole_loss * rHole_Loss_weight + valid_loss  * rValid_Loss_weight+ \
+                   style_loss * rStyle_Loss_weight + content_loss * rContent_Loss_weight+ \
+                   tv_loss * rTv_Loss_weight
             losses.update(loss.item(), inputs.size(0))
 
             write_avgs([s1, s2, s3, s4, s5], now_style_loss)
@@ -276,8 +280,18 @@ def main():
     parser.add_argument('-c', '--continue', dest='continue_path', type=str, required=False)
     parser.add_argument('--exp_name', default=config.exp_name, type=str, required=False)
     parser.add_argument('--enable_l1', action = 'store_true')
+    parser.add_argument('--tv', type = float, default = 0.1)
+    parser.add_argument('--style', type = float, default = 30)
     args = parser.parse_args()
     print(args)
+    global rValid_Loss_weight
+    global rHole_Loss_weight
+    global rStyle_Loss_weight
+    global rTv_Loss_weight
+    global rContent_Loss_weight
+
+    rStyle_Loss_weight = args.style
+    rTv_Loss_weight = args.tv
     if not args.enable_l1:
         rValid_Loss_weight = 0
         rHole_Loss_weight = 0

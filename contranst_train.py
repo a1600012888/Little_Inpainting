@@ -9,7 +9,7 @@ import os
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 import argparse
-from model_att_nobn import network, vgg_for_style_transfer
+from model_att_contrast import network, vgg_for_style_transfer
 from common import config
 from utils import TrainClock, save_args, AverageMeter, write_avgs, write_tensor
 from square_dataset import get_dataloaders

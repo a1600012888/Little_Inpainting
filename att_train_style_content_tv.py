@@ -11,17 +11,30 @@ from tensorboardX import SummaryWriter
 import argparse
 from model_att import network, vgg_for_style_transfer
 from common import config
-from utils import TrainClock, save_args, AverageMeter
+from utils import TrainClock, save_args, AverageMeter, write_avgs, write_tensor
 from square_dataset import get_dataloaders
 from loss_function import gram_matrix
 
+perceptual_content_name = ['Per/Train/cont1', 'Per/Train/cont2', 'Per/Train/cont3', 'Per/Train/cont4',
+                           'Per/Train/cont5']
+perceptual_style_name = ['PerTrain/style1', 'PerTrain/style2', 'PerTrain/style3', 'PerTrain/style4', 'PerTrain/style5']
+t_perceptual_content_name = ['Per/Val/cont1', 'Per/Val/cont2', 'Per/Val/cont3', 'Per/Val/cont4', 'Per/Val/cont5']
+t_perceptual_style_name = ['PerVal/style1', 'PerVal/style2', 'PerVal/style3', 'PerVal/style4', 'PerVal/style5']
+
 torch.backends.cudnn.benchmark = True
 
-Valid_loss_weight = 1
+Valid_Loss_weight = 1
 Hole_Loss_weight = 6
 Content_Loss_weight = 0.01
 Style_Loss_weight = 30
 Tv_Loss_weight = 0.1
+
+rValid_Loss_weight = 1
+rHole_Loss_weight = 6
+rContent_Loss_weight = 0.01
+rStyle_Loss_weight = 30
+rTv_Loss_weight = 0.1
+
 
 class Session:
 
@@ -56,6 +69,12 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
     style_losses = AverageMeter()
     content_losses = AverageMeter()
     tv_losses = AverageMeter()
+
+    s1 = AverageMeter()
+    s2 = AverageMeter()
+    s3 = AverageMeter()
+    s4 = AverageMeter()
+    s5 = AverageMeter()
     # ensure model is in train mode
 
     model.train()
@@ -64,7 +83,6 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
         inputs = data['hole_img'].float()
         labels = data['ori_img'].float()
         ori_img = labels.clone()
-        #print(ori_img.size())
         # mask: 1 for the hole and 0 for others
         masks = data['mask'].float()
         inputs = inputs.to(config.device)
@@ -81,14 +99,19 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
         # get content and style loss
         content_loss = 0
         style_loss = 0
+
+        now_style_loss = [0.0, 0.0, 0.0, 0.0, 0.0]  # np.ndarray(shape=(5, ))
         for k in range(inputs.size(0)):
             content_loss += torch.sum((features[3][k] - targets[3][k]) ** 2) / 2
-            #content_loss += F.mse_loss(features[3][k], targets[3][k])
+            # now_content_loss = F.mse_loss(features[3][k], targets[3][k])
+            # content_loss = content_loss + now_content_loss
             targets_gram = [gram_matrix(f[k]) for f in targets]
             features_gram = [gram_matrix(f[k]) for f in features]
-            for j in range(len(targets_gram)):
-                style_loss += torch.sum((features_gram[j] - targets_gram[j]) ** 2)
 
+            # style_loss += torch.sum(torch.mean((targets - features_gram) ** 2, dim = 0))
+            for j in range(len(targets_gram)):
+                now_style_loss[j] = torch.sum((features_gram[j] - targets_gram[j]) ** 2)
+                style_loss = style_loss + now_style_loss[j]
         style_loss /= inputs.size(0)
         content_loss /= inputs.size(0)
         style_losses.update(style_loss.item(), inputs.size(0))
@@ -96,10 +119,12 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
 
         # update loss metric
         # suppose criterion is L1 loss
-        hole_loss = criterion(outputs*masks, labels*masks)
-        valid_loss = criterion(outputs*(1-masks), labels*(1-masks))
+        hole_loss = criterion(outputs * masks, labels * masks)
+        valid_loss = criterion(outputs * (1 - masks), labels * (1 - masks))
         hole_losses.update(hole_loss.item(), inputs.size(0))
         valid_losses.update(valid_loss.item(), inputs.size(0))
+
+        write_avgs([s1, s2, s3, s4, s5], now_style_loss)
 
         # get total variation loss
         outputs_hole = outputs * masks
@@ -110,9 +135,9 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
         tv_losses.update(tv_loss.item(), inputs.size(0))
 
         # total loss
-        #loss = #hole_loss * Hole_Loss_weight + \ #Valid_loss_weight * valid_loss + \
-        loss = style_loss * Style_Loss_weight + content_loss * Content_Loss_weight + \
-               tv_loss * Tv_Loss_weight
+        loss = hole_loss * rHole_Loss_weight + valid_loss * rValid_Loss_weight + \
+               style_loss * rStyle_Loss_weight + content_loss * rContent_Loss_weight + \
+               tv_loss * rTv_Loss_weight
         losses.update(loss.item(), inputs.size(0))
 
         # compute gradient and do SGD step
@@ -126,10 +151,12 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
 
     tb_writer.add_scalar('train/epoch_loss', losses.avg, epoch)
     tb_writer.add_scalar('train/hole_loss', hole_losses.avg * Hole_Loss_weight, epoch)
-    tb_writer.add_scalar('train/valid_loss', valid_losses.avg * Valid_loss_weight, epoch)
+    tb_writer.add_scalar('train/valid_loss', valid_losses.avg * Valid_Loss_weight, epoch)
     tb_writer.add_scalar('train/style_loss', style_losses.avg * Style_Loss_weight, epoch)
     tb_writer.add_scalar('train/content_loss', content_losses.avg * Content_Loss_weight, epoch)
     tb_writer.add_scalar('train/tv_loss', tv_losses.avg * Tv_Loss_weight, epoch)
+
+    write_tensor(perceptual_style_name, [s1, s2, s3, s4, s5], epoch, tb_writer)
 
     torch.cuda.empty_cache()
     return
@@ -142,6 +169,12 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
     style_losses = AverageMeter()
     content_losses = AverageMeter()
     tv_losses = AverageMeter()
+
+    s1 = AverageMeter()
+    s2 = AverageMeter()
+    s3 = AverageMeter()
+    s4 = AverageMeter()
+    s5 = AverageMeter()
     # ensure model is in train mode
     model.eval()
     vgg.eval()
@@ -166,14 +199,20 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
             # get content and style loss
             content_loss = 0
             style_loss = 0
+
+            now_style_loss = [0.0, 0.0, 0.0, 0.0, 0.0]  # np.ndarray(shape=(5, ))
             for k in range(inputs.size(0)):
                 content_loss += torch.sum((features[3][k] - targets[3][k]) ** 2) / 2
+                # now_content_loss = F.mse_loss(features[3][k], targets[3][k])
+                # content_loss = content_loss + now_content_loss
                 targets_gram = [gram_matrix(f[k]) for f in targets]
                 features_gram = [gram_matrix(f[k]) for f in features]
-                for j in range(len(targets_gram)):
-                    style_loss += torch.sum((features_gram[j] - targets_gram[j]) ** 2)
 
-                    # style_loss += F.mse_loss(features_gram[j], targets_gram[j])
+                # style_loss += torch.sum(torch.mean((targets - features_gram) ** 2, dim = 0))
+                for j in range(len(targets_gram)):
+                    now_style_loss[j] = torch.sum((features_gram[j] - targets_gram[j]) ** 2)
+                    style_loss = style_loss + now_style_loss[j]
+
             style_loss /= inputs.size(0)
             content_loss /= inputs.size(0)
             style_losses.update(style_loss.item(), inputs.size(0))
@@ -181,8 +220,8 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
 
             # update loss metric
             # suppose criterion is L1 loss
-            hole_loss = criterion(outputs*masks, labels*masks)
-            valid_loss = criterion(outputs*(1-masks), labels*(1-masks))
+            hole_loss = criterion(outputs * masks, labels * masks)
+            valid_loss = criterion(outputs * (1 - masks), labels * (1 - masks))
             hole_losses.update(hole_loss.item(), inputs.size(0))
             valid_losses.update(valid_loss.item(), inputs.size(0))
 
@@ -195,11 +234,12 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
             tv_losses.update(tv_loss.item(), inputs.size(0))
 
             # total loss
-           # loss = #\ #hole_loss * Hole_Loss_weight + valid_loss * Valid_loss_weight + \
-            loss = style_loss * Style_Loss_weight + content_loss * Content_Loss_weight+ \
-                   tv_loss * Tv_Loss_weight
+            loss = hole_loss * rHole_Loss_weight + valid_loss * rValid_Loss_weight + \
+                   style_loss * rStyle_Loss_weight + content_loss * rContent_Loss_weight + \
+                   tv_loss * rTv_Loss_weight
             losses.update(loss.item(), inputs.size(0))
 
+            write_avgs([s1, s2, s3, s4, s5], now_style_loss)
             if i == 0:
                 for j in range(min(inputs.size(0), 3)):
                     hole_img = data['hole_img'][j]
@@ -216,10 +256,12 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
 
     tb_writer.add_scalar('valid/epoch_loss', losses.avg, epoch)
     tb_writer.add_scalar('valid/hole_loss', hole_losses.avg * Hole_Loss_weight, epoch)
-    tb_writer.add_scalar('valid/valid_loss', valid_losses.avg * Valid_loss_weight, epoch)
+    tb_writer.add_scalar('valid/valid_loss', valid_losses.avg * Valid_Loss_weight, epoch)
     tb_writer.add_scalar('valid/style_loss', style_losses.avg * Style_Loss_weight, epoch)
     tb_writer.add_scalar('valid/content_loss', content_losses.avg * Content_Loss_weight, epoch)
     tb_writer.add_scalar('valid/tv_loss', tv_losses.avg * Tv_Loss_weight, epoch)
+
+    write_tensor(t_perceptual_style_name, [s1, s2, s3, s4, s5], epoch, tb_writer)
 
     torch.cuda.empty_cache()
     outspects = {
@@ -237,11 +279,22 @@ def main():
     parser.add_argument('--weight-decay', default=0.0, type=float, help='weight decay')
     parser.add_argument('-c', '--continue', dest='continue_path', type=str, required=False)
     parser.add_argument('--exp_name', default=config.exp_name, type=str, required=False)
-    parser.add_argument('--valid', action='store_true')
-    parser.add_argument('--style_loss', action='store_true')
+    parser.add_argument('--enable_l1', action='store_true')
+    parser.add_argument('--tv', type=float, default=0.1)
+    parser.add_argument('--style', type=float, default=30)
     args = parser.parse_args()
     print(args)
+    global rValid_Loss_weight
+    global rHole_Loss_weight
+    global rStyle_Loss_weight
+    global rTv_Loss_weight
+    global rContent_Loss_weight
 
+    rStyle_Loss_weight = args.style
+    rTv_Loss_weight = args.tv
+    if not args.enable_l1:
+        rValid_Loss_weight = 0
+        rHole_Loss_weight = 0
     config.exp_name = args.exp_name
     config.make_dir()
 
@@ -273,7 +326,7 @@ def main():
 
     for e in range(args.epochs):
         train_model(train_loader, sess.net, vgg,
-                                criterion, optimizer, clock.epoch, tb_writer)
+                    criterion, optimizer, clock.epoch, tb_writer)
         valid_out = valid_model(valid_loader, sess.net, vgg,
                                 criterion, optimizer, clock.epoch, tb_writer)
 
