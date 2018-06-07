@@ -51,3 +51,17 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+def write_avgs(avgs = [], values = []):
+    assert len(avgs) == len(values)
+
+    for a, v in zip(avgs, values):
+        a.update(v)
+
+def write_tensor(tags, avgs, epoch, writer):
+    assert len(tags) == len(avgs)
+
+    for t, a in zip(tags, avgs):
+
+        writer.add_scalar(t, a.avg, epoch)

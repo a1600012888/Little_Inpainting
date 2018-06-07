@@ -2,8 +2,8 @@ import os
 import cv2 as cv
 import json
 import numpy as np
-ORI_DATA_ROOT = '/data1/wurundi/cityscapes/leftImg8bit_trainvaltest/leftImg8bit'
-NEW_DATA_ROOT = '/data1/wurundi/cityscapes/data'
+ORI_DATA_ROOT = '../leftImg8bit_trainvaltest/leftImg8bit'
+NEW_DATA_ROOT = '../cvdl/cityscapes/data'
 
 def process_data(phase):
     results = []
