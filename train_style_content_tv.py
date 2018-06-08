@@ -138,8 +138,11 @@ def train_model(train_loader, model, vgg, criterion, optimizer, epoch, tb_writer
         loss = hole_loss * rHole_Loss_weight + valid_loss * rValid_Loss_weight + \
                style_loss * rStyle_Loss_weight + content_loss * rContent_Loss_weight + \
                tv_loss * rTv_Loss_weight
-        losses.update(loss.item(), inputs.size(0))
 
+        loss_view = hole_loss * Hole_Loss_weight + valid_loss * Valid_Loss_weight + \
+               style_loss * Style_Loss_weight + content_loss * Content_Loss_weight + \
+               tv_loss * Tv_Loss_weight
+        losses.update(loss_view.item(), inputs.size(0))
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
@@ -237,7 +240,10 @@ def valid_model(valid_loader, model, vgg, criterion, optimizer, epoch, tb_writer
             loss = hole_loss * rHole_Loss_weight + valid_loss  * rValid_Loss_weight+ \
                    style_loss * rStyle_Loss_weight + content_loss * rContent_Loss_weight+ \
                    tv_loss * rTv_Loss_weight
-            losses.update(loss.item(), inputs.size(0))
+            loss_view = hole_loss * Hole_Loss_weight + valid_loss * Valid_Loss_weight + \
+                   style_loss * Style_Loss_weight + content_loss * Content_Loss_weight + \
+                   tv_loss * Tv_Loss_weight
+            losses.update(loss_view.item(), inputs.size(0))
 
             write_avgs([s1, s2, s3, s4, s5], now_style_loss)
             if i == 0:
